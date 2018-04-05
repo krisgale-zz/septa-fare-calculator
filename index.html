@@ -1,10 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8">
-	<title>SEPTA Regional Rail Fare Calculator</title>
+<meta charset="UTF-8">
+
+<title>SEPTA Fare Calculator</title>
+
+<style type="text/css">
+#farecalc * { font-family: sans-serif; line-height: 1.5em; padding: 0; margin: 0; }
+#farecalc h1 { font-size: 1.5em; text-align: center; background-color: #999; color: #006; }
+#farecalc div { padding-top: 0.5em; border: 0; }
+#farecalc label:first-of-type { font-weight: bold; }
+#farecalc label { display: block; padding: 0.5em 0 0.5em 0; margin: 0; font-size: 1.0em; }
+#farecalc select, #farecalc input { font-size: 1.25em; }
+label[for=farecalc-advance], label[for=farecalc-onboard] { font-weight: normal !important; padding: 0 !important; margin: 0; }
+#farecalc summary { font-size: 0.875em; }
+#farecalc-result { margin-top: 1.5em; text-align: center; background-color: #000; color: #fff; }
+#farecalc-cost { display: block; font-size: 1.75em; font-weight: bold; }
+</style>
+
 </head>
 <body>
-	
+
+<form id="farecalc" action="" onsubmit="return false;" autocomplete="off">
+	<h1>SEPTA Fare Calculator</h1>
+	<div>
+		<label for="farecalc-zone">Where are you going?</label>
+		<select id="farecalc-zone"></select>
+	</div>
+	<div>
+		<label for="farecalc-when">When are you riding?</label>
+		<select id="farecalc-when"></select>
+		<summary></summary>
+	</div>
+	<div>
+		<label>Where will you purchase the fare?</label>
+		<div id="farecalc-purchase-options"></div>
+		<summary></summary>
+	</div>
+	<div>
+		<label for="farecalc-trips">How many rides will you need?</label>
+		<select id="farecalc-trips"></select>
+	</div>
+	<div id="farecalc-result">
+		Your fare will cost:
+		<span id="farecalc-cost">$0.00</span>
+	</div>
+</form>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+<script type="text/javascript">
+
+var fareData = {
+    "when": [ {
+        "name": "Weekday",
+        "key": "weekday",
+        "info": "Valid Monday through Friday, 4:00 a.m. - 7:00 p.m. On trains arriving or departing 30th Street Station, Suburban and Jefferson Station"
+    }, {
+        "name": "Off-peak / Weekend",
+        "key": "offpeak",
+        "info": "Valid weekdays after 7:00 p.m.; all day Saturday, Sunday and major holidays. On trains arriving or departing 30th Street Station, Suburban and Jefferson Station"
+    }, {
+        "name": "Any Time",
+        "key": "anytime",
+        "info": "Valid anytime"
+    } ],
+    "purchase": [ {
+        "name": "Station Kiosk",
+        "key": "advance",
+        "info": "Tickets available for purchase at all SEPTA offices"
+    }, {
+        "name": "Onboard",
+        "key": "onboard",
+        "info": "Tickets available for purchase from a train conductor aboard SEPTA regional rail trains"
+    } ],
+    "zones": [ {
+        "name": "Zone 1 / CCP",
+        "zone": 1,
+        "fares": {
+            "weekday_advance": 5.25,
+            "weekday_onboard": 6.0,
+            "offpeak_advance": 4.25,
+            "offpeak_onboard": 5.0,
+            "anytime": 40.0
+        }
+    }, {
+        "name": "Zone 2",
+        "zone": 2,
+        "fares": {
+            "weekday_advance": 5.25,
+            "weekday_onboard": 6.0,
+            "offpeak_advance": 4.25,
+            "offpeak_onboard": 5.0,
+            "anytime": 47.5
+        }
+    }, {
+        "name": "Zone 3",
+        "zone": 3,
+        "fares": {
+            "weekday_advance": 6.0,
+            "weekday_onboard": 7.0,
+            "offpeak_advance": 5.25,
+            "offpeak_onboard": 7.0,
+            "anytime": 57.5
+        }
+    }, {
+        "name": "Zone 4",
+        "zone": 4,
+        "fares": {
+            "weekday_advance": 6.75,
+            "weekday_onboard": 8.0,
+            "offpeak_advance": 5.25,
+            "offpeak_onboard": 7.0,
+            "anytime": 65.0
+        }
+    }, {
+        "name": "NJ",
+        "zone": 5,
+        "fares": {
+            "weekday_advance": 9.25,
+            "weekday_onboard": 10.0,
+            "offpeak_advance": 9.25,
+            "offpeak_onboard": 10.0,
+            "anytime": 82.5
+        }
+    } ]
+};
+
+
+var fareCalc = {
+
+    "numTrips": 10,
+    "elZone": "#farecalc-zone",
+    "elWhen": "#farecalc-when",
+    "elPurchaseOptions": "#farecalc-purchase-options",
+    "elPurchase": "#farecalc [name=farecalc-purchase]",
+    "elTrips": "#farecalc-trips",
+    "elCost": "#farecalc-cost",
+
+    "zone": 0,
+    "when": "",
+    "purchase": "",
+    "prevTrips": 1,
+    "trips": 0,
+    "cost": 0,
+
+    "init": function( ) {
+
+            // zone
+        var el = jQuery( this.elZone );
+        jQuery.each( fareData.zones, function( idx, obj ) {
+            el.append(
+                '<option value="' + obj.zone + '">'
+                + obj.name + '</option>'
+            );
+        } );
+        el.change( function( ) {
+            fareCalc.zone = jQuery( this ).val( );
+            fareCalc.run( );
+        } );
+        el.trigger( "change" );
+
+            // when
+        el = jQuery( this.elWhen );
+        jQuery.each( fareData.when, function( idx, obj ) {
+            el.append(
+                '<option value="' + obj.key + '">'
+                + obj.name + '</option>'
+            );
+        } );
+        el.change( function( ) {
+            var el = jQuery( this ),
+                val = el.val( ),
+                idx = 0,
+                obj = null;
+            for( idx in fareData.when ) {
+                obj = fareData.when[ idx ];
+                if( obj.key == val ) {
+                    el.parent( ).find( "summary" ).text( fareData.when[ idx ].info );
+                    fareCalc.when = val;
+                    break;
+                }
+            }
+            el = jQuery( fareCalc.elTrips );
+            if( val == "anytime" ) {
+                fareCalc.prevTrips = el.val( );
+                el.val( fareCalc.numTrips );
+                el.attr( "disabled", true );
+                jQuery( fareCalc.elPurchase ).attr( "disabled", true );
+            } else {
+                el.val( fareCalc.prevTrips );
+                el.attr( "disabled", false );
+                jQuery( fareCalc.elPurchase ).attr( "disabled", false );
+            }
+            fareCalc.run( );
+        } );
+        el.trigger( "change" );
+
+            // purchase
+        jQuery.each( fareData.purchase, function( idx, obj ) {
+            jQuery( fareCalc.elPurchaseOptions ).append(
+                '<label for="farecalc-' + obj.key + '"><input id="farecalc-'
+                + obj.key + '" name="farecalc-purchase" value="'
+                + obj.key + '" type="radio"> ' + obj.name + '</label>'
+            );
+        } );
+        el = jQuery( this.elPurchase );
+        jQuery( el[ 0 ] ).attr( "checked", true );
+        el.change( function( ) {
+            var el = jQuery( fareCalc.elPurchase + ":checked" ),
+                val = el.val( ),
+                idx = 0,
+                obj = null;
+            for( idx in fareData.purchase ) {
+                obj = fareData.purchase[ idx ];
+                if( obj.key == val ) {
+                    el.parent( ).parent( ).parent( ).find( "summary" ).text( fareData.purchase[ idx ].info );
+                    fareCalc.purchase = val;
+                    break;
+                }
+            }
+            fareCalc.run( );
+        } );
+        el.trigger( "change" );
+
+            // trips
+        el = jQuery( this.elTrips );
+        for( i = 1; i <= this.numTrips; i++ ) {
+            el.append(
+                '<option value="' + i + '">'
+                + i + '</option>'
+            );
+        }
+        el.change( function( ) {
+            fareCalc.trips = jQuery( this ).val( );
+            fareCalc.run( );
+        } );
+        el.trigger( "change" );
+
+    },
+
+    "calc": function( zone, when, purchase, trips ) {
+        var idx = 0,
+            obj = null,
+            idx2 = 0,
+            obj2 = null,
+            key = when + ( when != "anytime" ? "_" + purchase : "" ),
+            cost = 0;
+        for( idx in fareData.zones ) {
+            obj = fareData.zones[ idx ];
+            if( zone == obj.zone ) {
+                for( idx2 in obj.fares ) {
+                    if( idx2 == key ) {
+                        cost = obj.fares[ idx2 ];
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if( key != "anytime" ) {
+            cost *= trips;
+        }
+        return cost;
+    },
+
+	"currency": function( val ) {
+	    return "$" + parseFloat( val, 10 ).toFixed( 2 )
+			.replace( /(\d)(?=(\d{3})+\.)/g, "$1," ).toString( );
+	},
+
+    "run": function( ) {
+        var cost = this.calc( this.zone, this.when, this.purchase, this.trips ),
+            el = jQuery( this.elCost );
+        el.text( this.currency( cost ) );
+    }
+
+};
+
+
+$( document ).ready( function( ) {
+
+    fareCalc.init( );
+
+} );
+
+</script>
+
 </body>
 </html>
